@@ -1,0 +1,106 @@
+{
+  "bridge": {
+    "workspace": "~/.ectoclaw/workspace",
+    "provider": "claude",
+    "model": ""
+  },
+  "heartbeat": {
+    "enabled": true,
+    "interval": 30
+  },
+  "gateway": {
+    "host": "127.0.0.1",
+    "port": 18790
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "YOUR_TELEGRAM_BOT_TOKEN",
+      "base_url": "",
+      "proxy": "",
+      "allow_from": [
+        "YOUR_USER_ID"
+      ]
+    },
+    "discord": {
+      "enabled": false,
+      "token": "YOUR_DISCORD_BOT_TOKEN",
+      "proxy": "",
+      "allow_from": [],
+      "group_trigger": {
+        "mention_only": false
+      }
+    },
+    "whatsapp": {
+      "enabled": false,
+      "bridge_url": "ws://localhost:3001",
+      "use_native": false,
+      "session_store_path": "",
+      "allow_from": []
+    },
+    "slack": {
+      "enabled": false,
+      "bot_token": "xoxb-YOUR-BOT-TOKEN",
+      "app_token": "xapp-YOUR-APP-TOKEN",
+      "allow_from": []
+    },
+    "matrix": {
+      "enabled": false,
+      "homeserver": "https://matrix.org",
+      "user_id": "@your-bot:matrix.org",
+      "access_token": "YOUR_MATRIX_ACCESS_TOKEN",
+      "device_id": "",
+      "join_on_invite": true,
+      "allow_from": [],
+      "group_trigger": {
+        "mention_only": true
+      },
+      "placeholder": {
+        "enabled": true,
+        "text": "Thinking..."
+      }
+    },
+    "line": {
+      "enabled": false,
+      "channel_secret": "YOUR_LINE_CHANNEL_SECRET",
+      "channel_access_token": "YOUR_LINE_CHANNEL_ACCESS_TOKEN",
+      "webhook_path": "/webhook/line",
+      "allow_from": []
+    },
+    "irc": {
+      "enabled": false,
+      "server": "irc.libera.chat:6697",
+      "tls": true,
+      "nick": "mybot",
+      "user": "",
+      "real_name": "",
+      "password": "",
+      "nickserv_password": "",
+      "sasl_user": "",
+      "sasl_password": "",
+      "channels": ["#mychannel"],
+      "allow_from": [],
+      "group_trigger": {
+        "mention_only": true
+      }
+    }
+  },
+  "skills": {
+    "enabled": true,
+    "registries": {
+      "clawhub": {
+        "enabled": true,
+        "base_url": "https://clawhub.ai",
+        "auth_token": ""
+      }
+    }
+  },
+  "logs": {
+    "agent": false
+  },
+  "media_cleanup": {
+    "enabled": true,
+    "max_age_minutes": 30,
+    "interval_minutes": 5
+  }
+}

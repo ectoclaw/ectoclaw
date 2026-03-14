@@ -1,0 +1,44 @@
+services:
+  # ─────────────────────────────────────────────
+  # EctoClaw Agent (one-shot query) - Full MCP Support
+  #   docker compose -f docker/docker-compose.full.yml run --rm ectoclaw-agent -m "Hello"
+  # ─────────────────────────────────────────────
+  ectoclaw-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.full
+    container_name: ectoclaw-agent-full
+    profiles:
+      - agent
+    volumes:
+      - ../config/config.json:/root/.ectoclaw/config.json:ro
+      - ectoclaw-workspace:/root/.ectoclaw/workspace
+      - ectoclaw-npm-cache:/root/.npm # npm cache for faster MCP server installs
+    entrypoint: ["ectoclaw", "agent"]
+    stdin_open: true
+    tty: true
+
+  # ─────────────────────────────────────────────
+  # EctoClaw Gateway (Long-running Bot) - Full MCP Support
+  #   docker compose -f docker/docker-compose.full.yml --profile gateway up
+  # ─────────────────────────────────────────────
+  ectoclaw-gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.full
+    container_name: ectoclaw-gateway-full
+    restart: unless-stopped
+    profiles:
+      - gateway
+    volumes:
+      # Configuration file
+      - ../config/config.json:/root/.ectoclaw/config.json:ro
+      # Persistent workspace (sessions, memory, logs)
+      - ectoclaw-workspace:/root/.ectoclaw/workspace
+      # NPM cache for faster MCP server installs
+      - ectoclaw-npm-cache:/root/.npm
+    command: ["gateway"]
+
+volumes:
+  ectoclaw-workspace:
+  ectoclaw-npm-cache: # Cache npm packages to speed up MCP server installations

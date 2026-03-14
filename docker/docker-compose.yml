@@ -1,0 +1,34 @@
+services:
+  # ─────────────────────────────────────────────
+  # EctoClaw Agent (one-shot query)
+  #   docker compose -f docker/docker-compose.yml run --rm ectoclaw-agent -m "Hello"
+  # ─────────────────────────────────────────────
+  ectoclaw-agent:
+    image: docker.io/ectoclaw/ectoclaw:latest
+    container_name: ectoclaw-agent
+    profiles:
+      - agent
+    # Uncomment to access host network; leave commented unless needed.
+    #extra_hosts:
+    #  - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/root/.ectoclaw
+    entrypoint: ["ectoclaw", "agent"]
+    stdin_open: true
+    tty: true
+
+  # ─────────────────────────────────────────────
+  # EctoClaw Gateway (Long-running Bot)
+  #   docker compose -f docker/docker-compose.yml up ectoclaw-gateway
+  # ─────────────────────────────────────────────
+  ectoclaw-gateway:
+    image: docker.io/ectoclaw/ectoclaw:latest
+    container_name: ectoclaw-gateway
+    restart: on-failure
+    profiles:
+      - gateway
+    # Uncomment to access host network; leave commented unless needed.
+    #extra_hosts:
+    #  - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/root/.ectoclaw

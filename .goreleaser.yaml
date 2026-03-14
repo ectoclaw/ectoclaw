@@ -1,0 +1,121 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
+# vim: set ts=2 sw=2 tw=0 fo=cnqoj
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: ectoclaw
+    env:
+      - CGO_ENABLED=0
+    tags:
+      - stdjson
+    ldflags:
+      - -s -w
+      - -X github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal.version={{ .Version }}
+      - -X github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal.gitCommit={{ .ShortCommit }}
+      - -X github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal.buildTime={{ .Date }}
+      - -X github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal.goVersion={{ .Env.GOVERSION }}
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/ectoclaw
+    ignore:
+      - goos: windows
+        goarch: arm
+
+
+dockers_v2:
+  - id: ectoclaw
+    dockerfile: docker/Dockerfile.goreleaser
+    extra_files:
+      - docker/entrypoint.sh
+    ids:
+      - ectoclaw
+    images:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/ectoclaw"
+      - "docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}"
+    tags:
+      - "{{ .Tag }}"
+      - "latest"
+    platforms:
+      - linux/amd64
+      - linux/arm64
+
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - ectoclaw
+      sign:
+        certificate: "{{.Env.MACOS_SIGN_P12}}"
+        password: "{{.Env.MACOS_SIGN_PASSWORD}}"
+      notarize:
+        issuer_id: "{{.Env.MACOS_NOTARY_ISSUER_ID}}"
+        key_id: "{{.Env.MACOS_NOTARY_KEY_ID}}"
+        key: "{{.Env.MACOS_NOTARY_KEY}}"
+        wait: true
+        timeout: 20m
+
+archives:
+  - formats: [tar.gz]
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+nfpms:
+  - id: ectoclaw
+    builds:
+      - ectoclaw
+    package_name: ectoclaw
+    file_name_template: >-
+      {{ .PackageName }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}aarch64
+      {{- else if eq .Arch "arm" }}armv{{ .Arm }}
+      {{- else }}{{ .Arch }}{{ end }}
+    vendor: ectoclaw
+    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/ectoclaw
+    maintainer: ectoclaw contributors
+    description: ectoclaw - a tool for managing and running tasks
+    license: MIT
+    formats:
+      - rpm
+      - deb
+    bindir: /usr/bin
+
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# upx:
+#    - enabled: true
+#      compress: best
+#      lzma: true
+
+release:
+  footer: >-
+
+    ---
+
+    Released by [GoReleaser](https://github.com/goreleaser/goreleaser).

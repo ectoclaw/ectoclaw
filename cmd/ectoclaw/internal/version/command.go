@@ -8,6 +8,7 @@ import (
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal"
 )
 
+
 func NewVersionCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "version",
@@ -22,12 +23,5 @@ func NewVersionCommand() *cobra.Command {
 }
 
 func printVersion() {
-	fmt.Printf("%s ectoclaw %s\n", internal.Logo, internal.FormatVersion())
-	build, goVer := internal.FormatBuildInfo()
-	if build != "" {
-		fmt.Printf("  Build: %s\n", build)
-	}
-	if goVer != "" {
-		fmt.Printf("  Go: %s\n", goVer)
-	}
+	fmt.Println(internal.GetVersion())
 }

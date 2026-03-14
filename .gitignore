@@ -45,6 +45,9 @@ docs/plans/
 .vscode/
 .idea/
 
+# Claude Code
+CLAUDE.md
+
 # Added by goreleaser init:
 dist/
 *.vite/

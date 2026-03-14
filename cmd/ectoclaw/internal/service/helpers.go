@@ -132,8 +132,14 @@ func uninstallSystemd() error {
 	return nil
 }
 
-func startSystemd() error  { return systemctl("start", serviceName) }
-func stopSystemd() error   { return systemctl("stop", serviceName) }
+func startSystemd() error { return systemctl("start", serviceName) }
+func stopSystemd() error {
+	out, err := exec.Command("systemctl", "stop", serviceName).CombinedOutput()
+	if err != nil && !strings.Contains(string(out), "not loaded") {
+		return fmt.Errorf("systemctl stop %s: %w\n%s", serviceName, err, out)
+	}
+	return nil
+}
 func statusSystemd() error { return systemctlInteractive("status", serviceName) }
 
 func systemctl(args ...string) error {

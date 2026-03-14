@@ -22,49 +22,37 @@ Just message it, like you'd message a person. It replies, remembers, and works. 
 
 ## Quick Start
 
-Pick your preferred install method:
-
-**Homebrew** *(recommended)*
-```bash
-brew install ectoclaw/tap/ectoclaw
-```
-
-**Download a binary**
-
-Grab the latest release for your platform from [releases](https://github.com/ectoclaw/ectoclaw/releases):
-```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/ectoclaw/ectoclaw/releases/latest/download/ectoclaw_Darwin_arm64.tar.gz | tar xz
-sudo mv ectoclaw /usr/local/bin/
-
-# macOS (Intel)
-curl -L https://github.com/ectoclaw/ectoclaw/releases/latest/download/ectoclaw_Darwin_x86_64.tar.gz | tar xz
-sudo mv ectoclaw /usr/local/bin/
-
-# Linux (amd64)
-curl -L https://github.com/ectoclaw/ectoclaw/releases/latest/download/ectoclaw_Linux_x86_64.tar.gz | tar xz
-sudo mv ectoclaw /usr/local/bin/
-```
-
-**Build from source**
-```bash
-git clone https://github.com/ectoclaw/ectoclaw
-cd ectoclaw
-make install
-```
-
----
-
-Once installed, set up your workspace and connect a channel:
+**1. Install**
 
 ```bash
-ectoclaw onboard        # initialise config & workspace
-ectoclaw gateway        # start the bot
+curl -sSL ectoclaw.com/install.sh | sh
 ```
 
-Or if you use Claude Code, just open it in the repo and run `/setup` — it handles the rest.
+Or download a binary for your platform from the [releases page](https://github.com/ectoclaw/ectoclaw/releases) and move it to `/usr/local/bin/`.
+
+**2. Configure**
+
+```bash
+ectoclaw onboard
+```
+
+This creates `~/.ectoclaw/config.json` and your workspace. Open the config and add your channel token (Telegram bot token, Discord token, etc.) and the path to your coding agent binary.
 
 > **Supported agents:** [Claude Code](https://claude.ai/download) (`claude`) and [OpenAI Codex](https://github.com/openai/codex) (`codex`). Set `bridge.provider` in your config or via `ECTOCLAW_BRIDGE_PROVIDER`.
+
+**3. Run**
+
+As a one-off (useful for testing your setup):
+```bash
+ectoclaw gateway
+```
+
+As a persistent background service:
+```bash
+sudo ectoclaw service install
+sudo ectoclaw service start
+ectoclaw service status
+```
 
 ## Yet Another Claw?
 

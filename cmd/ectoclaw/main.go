@@ -1,9 +1,3 @@
-// EctoClaw - Personal AI assistant powered by Claude Code
-// Inspired by and based on PicoClaw: https://github.com/sipeed/picoclaw
-// License: MIT
-//
-// Copyright (c) 2026 Octomatic
-
 package main
 
 import (
@@ -17,13 +11,14 @@ import (
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/cron"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/gateway"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/onboard"
+	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/service"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/skills"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/status"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/version"
 )
 
 func NewEctoclawCommand() *cobra.Command {
-	short := fmt.Sprintf("%s ectoclaw - Personal AI assistant powered by Claude Code v%s\n\n", internal.Logo, internal.GetVersion())
+	short := fmt.Sprintf("%s ectoclaw - Personal AI assistant powered by your coding agent v%s\n\n", internal.Logo, internal.GetVersion())
 
 	cmd := &cobra.Command{
 		Use:     "ectoclaw",
@@ -35,6 +30,7 @@ func NewEctoclawCommand() *cobra.Command {
 		onboard.NewOnboardCommand(),
 		agent.NewAgentCommand(),
 		gateway.NewGatewayCommand(),
+		service.NewServiceCommand(),
 		status.NewStatusCommand(),
 		cron.NewCronCommand(),
 		skills.NewSkillsCommand(),

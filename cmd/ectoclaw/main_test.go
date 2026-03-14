@@ -16,7 +16,7 @@ func TestNewEctoclawCommand(t *testing.T) {
 
 	require.NotNil(t, cmd)
 
-	short := fmt.Sprintf("%s ectoclaw - Personal AI assistant powered by Claude Code v%s\n\n", internal.Logo, internal.GetVersion())
+	short := fmt.Sprintf("%s ectoclaw - Personal AI assistant powered by your coding agent v%s\n\n", internal.Logo, internal.GetVersion())
 
 	assert.Equal(t, "ectoclaw", cmd.Use)
 	assert.Equal(t, short, cmd.Short)
@@ -37,6 +37,7 @@ func TestNewEctoclawCommand(t *testing.T) {
 		"cron",
 		"gateway",
 		"onboard",
+		"service",
 		"skills",
 		"status",
 		"version",

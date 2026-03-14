@@ -32,37 +32,7 @@ builds:
         goarch: arm
 
 
-dockers_v2:
-  - id: ectoclaw
-    dockerfile: docker/Dockerfile.goreleaser
-    extra_files:
-      - docker/entrypoint.sh
-    ids:
-      - ectoclaw
-    images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/ectoclaw"
-      - "docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}"
-    tags:
-      - "{{ .Tag }}"
-      - "latest"
-    platforms:
-      - linux/amd64
-      - linux/arm64
 
-notarize:
-  macos:
-    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
-      ids:
-        - ectoclaw
-      sign:
-        certificate: "{{.Env.MACOS_SIGN_P12}}"
-        password: "{{.Env.MACOS_SIGN_PASSWORD}}"
-      notarize:
-        issuer_id: "{{.Env.MACOS_NOTARY_ISSUER_ID}}"
-        key_id: "{{.Env.MACOS_NOTARY_KEY_ID}}"
-        key: "{{.Env.MACOS_NOTARY_KEY}}"
-        wait: true
-        timeout: 20m
 
 archives:
   - formats: [tar.gz]
@@ -91,7 +61,7 @@ nfpms:
       {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
     vendor: ectoclaw
-    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/ectoclaw
+    homepage: https://github.com/ectoclaw/ectoclaw
     maintainer: ectoclaw contributors
     description: ectoclaw - a tool for managing and running tasks
     license: MIT

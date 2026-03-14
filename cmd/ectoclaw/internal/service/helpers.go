@@ -23,6 +23,7 @@ After=network.target
 [Service]
 Type=simple
 Environment=HOME={{ .Home }}
+Environment=PATH={{ .Path }}
 ExecStart={{ .ExecPath }} gateway
 Restart=on-failure
 RestartSec=5
@@ -63,7 +64,11 @@ func installSystemd() error {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
 
-	if err := tmpl.Execute(f, map[string]string{"ExecPath": execPath, "Home": home}); err != nil {
+	if err := tmpl.Execute(f, map[string]string{
+		"ExecPath": execPath,
+		"Home":     home,
+		"Path":     os.Getenv("PATH"),
+	}); err != nil {
 		return err
 	}
 

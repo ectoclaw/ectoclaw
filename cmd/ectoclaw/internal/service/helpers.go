@@ -14,9 +14,6 @@ import (
 // serviceName is the system service identifier.
 const serviceName = "ectoclaw"
 
-// serviceUser is the dedicated system user the service runs as.
-const serviceUser = "ectoclaw"
-
 // ─── Linux / systemd ─────────────────────────────────────────────────────────
 
 const systemdUnit = `[Unit]
@@ -25,8 +22,6 @@ After=network.target
 
 [Service]
 Type=simple
-User={{ .User }}
-Group={{ .User }}
 ExecStart={{ .ExecPath }} gateway
 Restart=on-failure
 RestartSec=5
@@ -51,11 +46,6 @@ func installSystemd() error {
 		return fmt.Errorf("resolve absolute path: %w", err)
 	}
 
-	// Create dedicated system user if it doesn't exist.
-	if err := ensureSystemUser(); err != nil {
-		return err
-	}
-
 	tmpl, err := template.New("unit").Parse(systemdUnit)
 	if err != nil {
 		return err
@@ -67,10 +57,7 @@ func installSystemd() error {
 	}
 	defer f.Close()
 
-	if err := tmpl.Execute(f, map[string]string{
-		"ExecPath": execPath,
-		"User":     serviceUser,
-	}); err != nil {
+	if err := tmpl.Execute(f, map[string]string{"ExecPath": execPath}); err != nil {
 		return err
 	}
 
@@ -81,41 +68,7 @@ func installSystemd() error {
 		return err
 	}
 
-	fmt.Printf("Service installed (running as user %q).\n", serviceUser)
-	fmt.Printf("Run `ectoclaw service start` to start it.\n")
-	return nil
-}
-
-// ensureSystemUser creates the ectoclaw system user and home directory if they don't exist.
-func ensureSystemUser() error {
-	// Check if user already exists.
-	out, _ := exec.Command("id", serviceUser).CombinedOutput()
-	if len(out) > 0 && !strings.Contains(string(out), "no such user") {
-		return nil
-	}
-
-	homeDir := "/home/" + serviceUser
-	args := []string{
-		"-r",
-		"-s", "/sbin/nologin",
-		"-m",
-		"-d", homeDir,
-		serviceUser,
-	}
-	if out, err := exec.Command("useradd", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("create user %q: %w\n%s", serviceUser, err, out)
-	}
-
-	// Create .ectoclaw config dir owned by the service user.
-	cfgDir := filepath.Join(homeDir, ".ectoclaw")
-	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-	if out, err := exec.Command("chown", "-R", serviceUser+":"+serviceUser, cfgDir).CombinedOutput(); err != nil {
-		return fmt.Errorf("chown config dir: %w\n%s", err, out)
-	}
-
-	fmt.Printf("Created system user %q with home %s\n", serviceUser, homeDir)
+	fmt.Printf("Service installed. Run `ectoclaw service start` to start it.\n")
 	return nil
 }
 

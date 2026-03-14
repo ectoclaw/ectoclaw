@@ -22,6 +22,7 @@ After=network.target
 
 [Service]
 Type=simple
+Environment=HOME={{ .Home }}
 ExecStart={{ .ExecPath }} gateway
 Restart=on-failure
 RestartSec=5
@@ -57,7 +58,12 @@ func installSystemd() error {
 	}
 	defer f.Close()
 
-	if err := tmpl.Execute(f, map[string]string{"ExecPath": execPath}); err != nil {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
+
+	if err := tmpl.Execute(f, map[string]string{"ExecPath": execPath, "Home": home}); err != nil {
 		return err
 	}
 
@@ -93,7 +99,13 @@ func stopSystemd() error {
 	}
 	return nil
 }
-func statusSystemd() error { return systemctlInteractive("status", serviceName) }
+func statusSystemd() error {
+	cmd := exec.Command("systemctl", "status", serviceName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	_ = cmd.Run() // exit code 3 = inactive, not an error worth surfacing
+	return nil
+}
 
 func systemctl(args ...string) error {
 	out, err := exec.Command("systemctl", args...).CombinedOutput()

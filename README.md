@@ -9,7 +9,7 @@
 <p>
   <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/badge/LOC-~30k-green" alt="Lines of Code">
+  <img src="https://img.shields.io/badge/LOC-~14k-green" alt="Lines of Code">
 </p>
 
 </div>

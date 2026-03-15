@@ -285,25 +285,35 @@ func uninstall() error {
 }
 
 func start() error {
+	var err error
 	switch runtime.GOOS {
 	case "linux":
-		return startSystemd()
+		err = startSystemd()
 	case "darwin":
-		return startLaunchd()
+		err = startLaunchd()
 	default:
 		return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 	}
+	if err == nil {
+		fmt.Println("Service started.")
+	}
+	return err
 }
 
 func stop() error {
+	var err error
 	switch runtime.GOOS {
 	case "linux":
-		return stopSystemd()
+		err = stopSystemd()
 	case "darwin":
-		return stopLaunchd()
+		err = stopLaunchd()
 	default:
 		return fmt.Errorf("service management is not supported on %s", runtime.GOOS)
 	}
+	if err == nil {
+		fmt.Println("Service stopped.")
+	}
+	return err
 }
 
 func status() error {

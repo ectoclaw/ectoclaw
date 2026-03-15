@@ -24,10 +24,10 @@ type InvokeRequest struct {
 
 // InvokeResult contains the output of a successful invocation.
 type InvokeResult struct {
-	SessionID    string
-	Text         string
-	TokensIn     int
-	TokensOut    int
+	SessionID string
+	Text      string
+	TokensIn  int
+	TokensOut int
 }
 
 // Provider is the interface for coding-agent CLI backends.

@@ -73,7 +73,8 @@ func scanWithIdleTimeout(cancel context.CancelFunc, r io.Reader, idleTimeout tim
 				// Drain the scanner goroutine until it exits. exec.CommandContext kills
 				// the subprocess when the context is done, which closes stdout and
 				// unblocks scanner.Scan(), causing rawCh to close.
-				for range rawCh {}
+				for range rawCh {
+				}
 				return
 			}
 		}

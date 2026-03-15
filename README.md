@@ -63,6 +63,9 @@ EctoClaw doesn't do any of that. Instead of reinventing what your coding agent a
 
 The difference is respect: other tools treat coding agents as dumb LLM endpoints. EctoClaw treats them as capable agents and lets them prove it.
 
+> [!IMPORTANT]
+> **No bans.** Several projects extract the OAuth token Claude Code uses internally and call Anthropic's API directly with it — a ToS violation that risks getting your account suspended. EctoClaw never touches that token. It invokes the official `claude` binary exactly as you would at your terminal: same auth, same rate limits, nothing hidden. Your account stays safe.
+
 What EctoClaw adds on top of the bridge:
 
 - **Conversation history** — every chat has its own agent session. Ask "what did we talk about last Tuesday?" and it actually knows.

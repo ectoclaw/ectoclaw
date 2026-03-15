@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestHelperProcess is not a real test. It runs as a fake claude/codex subprocess
@@ -35,6 +36,48 @@ func TestHelperProcess(t *testing.T) {
 	case "codex_stderr_failure":
 		fmt.Fprintln(os.Stderr, "codex: authentication required")
 		os.Exit(1)
+	case "claude_idle_hang":
+		// Emit nothing and block until killed by the idle timeout.
+		time.Sleep(time.Hour)
+	case "codex_idle_hang":
+		// Emit nothing and block until killed by the idle timeout.
+		time.Sleep(time.Hour)
+	case "claude_idle_then_succeed":
+		// On retry (detected via --resume flag in args), return a successful result.
+		// On first call, emit a partial result event with a session_id then hang.
+		isRetry := false
+		for _, arg := range os.Args {
+			if arg == "--resume" {
+				isRetry = true
+				break
+			}
+		}
+		if isRetry {
+			fmt.Println(`{"type":"result","subtype":"success","is_error":false,"result":"recovered after idle","session_id":"sess-recovered","usage":{"input_tokens":5,"output_tokens":3}}`)
+			os.Exit(0)
+		}
+		// Emit a result event so the session_id is captured before hanging.
+		fmt.Println(`{"type":"result","subtype":"success","is_error":false,"result":"","session_id":"sess-partial","usage":{"input_tokens":0,"output_tokens":0}}`)
+		time.Sleep(time.Hour)
+	case "codex_idle_then_succeed":
+		// On retry (detected via "resume" subcommand in args), return a successful result.
+		// On first call, emit a thread.started event with a thread_id then hang.
+		isRetry := false
+		for _, arg := range os.Args {
+			if arg == "resume" {
+				isRetry = true
+				break
+			}
+		}
+		if isRetry {
+			fmt.Println(`{"type":"thread.started","thread_id":"thread-recovered"}`)
+			fmt.Println(`{"type":"item.completed","item":{"type":"agent_message","text":"recovered after idle"}}`)
+			fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":3}}`)
+			os.Exit(0)
+		}
+		// Emit a thread.started event so the session_id is captured before hanging.
+		fmt.Println(`{"type":"thread.started","thread_id":"thread-partial"}`)
+		time.Sleep(time.Hour)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown FAKE_SCENARIO=%q\n", os.Getenv("FAKE_SCENARIO"))
 		os.Exit(2)
@@ -47,8 +90,12 @@ func TestHelperProcess(t *testing.T) {
 func fakeInPath(t *testing.T, binName, scenario string) {
 	t.Helper()
 	dir := t.TempDir()
+	// Use 'exec env' so the shell is replaced by the test binary directly.
+	// Without 'exec', the shell forks the test binary as a child; killing the
+	// shell leaves the child alive with the stdout pipe still open, which
+	// deadlocks the idle-timeout tests that rely on killing the subprocess.
 	script := fmt.Sprintf(
-		"#!/bin/sh\nGO_WANT_HELPER_PROCESS=1 FAKE_SCENARIO=%s %s -test.run=TestHelperProcess -- \"$@\"\n",
+		"#!/bin/sh\nexec env GO_WANT_HELPER_PROCESS=1 FAKE_SCENARIO=%s %s -test.run=TestHelperProcess -- \"$@\"\n",
 		scenario, os.Args[0],
 	)
 	if err := os.WriteFile(filepath.Join(dir, binName), []byte(script), 0o755); err != nil {

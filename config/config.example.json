@@ -2,7 +2,9 @@
   "bridge": {
     "workspace": "~/.ectoclaw/workspace",
     "provider": "claude",
-    "model": ""
+    "model": "",
+    "idle_timeout_minutes": 5,
+    "max_retries": 3
   },
   "heartbeat": {
     "enabled": true,

@@ -5,10 +5,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestCodexProvider_Name(t *testing.T) {
-	p := NewCodexProvider(nil)
+	p := NewCodexProvider(nil, 0, 0)
 	if p.Name() != "codex" {
 		t.Errorf("Name() = %q, want %q", p.Name(), "codex")
 	}
@@ -92,7 +93,7 @@ func TestCodexProvider_BuildArgs(t *testing.T) {
 
 func TestCodexProvider_Invoke_Success(t *testing.T) {
 	fakeInPath(t, "codex", "codex_success")
-	p := NewCodexProvider(nil)
+	p := NewCodexProvider(nil, 0, 0)
 
 	result, err := p.Invoke(context.Background(), InvokeRequest{
 		UserMessage: "hello",
@@ -118,7 +119,7 @@ func TestCodexProvider_Invoke_Success(t *testing.T) {
 
 func TestCodexProvider_Invoke_StderrOnFailure(t *testing.T) {
 	fakeInPath(t, "codex", "codex_stderr_failure")
-	p := NewCodexProvider(nil)
+	p := NewCodexProvider(nil, 0, 0)
 
 	_, err := p.Invoke(context.Background(), InvokeRequest{
 		UserMessage: "hello",
@@ -133,5 +134,62 @@ func TestCodexProvider_Invoke_StderrOnFailure(t *testing.T) {
 	}
 	if !strings.Contains(provErr.Message, "authentication required") {
 		t.Errorf("Message = %q, want to contain %q", provErr.Message, "authentication required")
+	}
+}
+
+// TestCodexProvider_NoTimeout_Disabled verifies that idleTimeout=0 disables the timer and
+// normal successful execution still works.
+func TestCodexProvider_NoTimeout_Disabled(t *testing.T) {
+	fakeInPath(t, "codex", "codex_success")
+	p := NewCodexProvider(nil, 0, 0)
+
+	result, err := p.Invoke(context.Background(), InvokeRequest{
+		UserMessage: "hello",
+		WorkDir:     t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Invoke() error = %v (timeout disabled should not affect success)", err)
+	}
+	if result.Text != "hello from codex" {
+		t.Errorf("Text = %q, want %q", result.Text, "hello from codex")
+	}
+}
+
+// TestCodexProvider_IdleTimeout_TriggersRetry verifies that when the subprocess emits no output
+// within the idle deadline, Invoke returns an error wrapping errIdleTimeout.
+func TestCodexProvider_IdleTimeout_TriggersRetry(t *testing.T) {
+	fakeInPath(t, "codex", "codex_idle_hang")
+	p := NewCodexProvider(nil, 200*time.Millisecond, 1)
+
+	_, err := p.Invoke(context.Background(), InvokeRequest{
+		UserMessage: "hello",
+		WorkDir:     t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("Invoke() expected error on idle timeout, got nil")
+	}
+	if !errors.Is(err, errIdleTimeout) {
+		t.Errorf("err = %v, want to wrap errIdleTimeout", err)
+	}
+}
+
+// TestCodexProvider_IdleTimeout_RetrySucceeds verifies that after an idle timeout the provider
+// retries with the captured thread ID and returns the successful result.
+func TestCodexProvider_IdleTimeout_RetrySucceeds(t *testing.T) {
+	fakeInPath(t, "codex", "codex_idle_then_succeed")
+	p := NewCodexProvider(nil, 500*time.Millisecond, 3)
+
+	result, err := p.Invoke(context.Background(), InvokeRequest{
+		UserMessage: "hello",
+		WorkDir:     t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Invoke() error = %v", err)
+	}
+	if result.Text != "recovered after idle" {
+		t.Errorf("Text = %q, want %q", result.Text, "recovered after idle")
+	}
+	if result.SessionID != "thread-recovered" {
+		t.Errorf("SessionID = %q, want %q", result.SessionID, "thread-recovered")
 	}
 }

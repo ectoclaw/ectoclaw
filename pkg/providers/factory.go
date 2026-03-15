@@ -2,6 +2,7 @@ package providers
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ectoclaw/ectoclaw/pkg/config"
 	"github.com/ectoclaw/ectoclaw/pkg/logger"
@@ -18,11 +19,14 @@ func NewProvider(cfg *config.Config) (Provider, error) {
 		}
 	}
 
+	idleTimeout := time.Duration(cfg.Bridge.IdleTimeoutMinutes) * time.Minute
+	maxRetries := cfg.Bridge.MaxRetries
+
 	switch cfg.Bridge.Provider {
 	case "codex":
-		return NewCodexProvider(il), nil
+		return NewCodexProvider(il, idleTimeout, maxRetries), nil
 	case "", "claude":
-		return NewClaudeProvider(il), nil
+		return NewClaudeProvider(il, idleTimeout, maxRetries), nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q (supported: claude, codex)", cfg.Bridge.Provider)
 	}

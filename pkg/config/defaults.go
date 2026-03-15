@@ -20,8 +20,10 @@ func DefaultConfig() *Config {
 
 	return &Config{
 		Bridge: BridgeConfig{
-			Workspace: workspacePath,
-			Provider:  "claude",
+			Workspace:          workspacePath,
+			Provider:           "claude",
+			IdleTimeoutMinutes: 5,
+			MaxRetries:         3,
 		},
 		Channels: ChannelsConfig{
 			WhatsApp: WhatsAppConfig{

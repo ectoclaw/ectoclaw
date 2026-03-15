@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestClaudeProvider_Name(t *testing.T) {
-	p := NewClaudeProvider(nil)
+	p := NewClaudeProvider(nil, 0, 0)
 	if p.Name() != "claude" {
 		t.Errorf("Name() = %q, want %q", p.Name(), "claude")
 	}
@@ -100,7 +101,7 @@ func TestClaudeProvider_BuildArgs(t *testing.T) {
 
 func TestClaudeProvider_Invoke_Success(t *testing.T) {
 	fakeInPath(t, "claude", "claude_success")
-	p := NewClaudeProvider(nil)
+	p := NewClaudeProvider(nil, 0, 0)
 
 	result, err := p.Invoke(context.Background(), InvokeRequest{
 		UserMessage: "hello",
@@ -125,7 +126,7 @@ func TestClaudeProvider_Invoke_Success(t *testing.T) {
 
 func TestClaudeProvider_Invoke_IsError(t *testing.T) {
 	fakeInPath(t, "claude", "claude_is_error")
-	p := NewClaudeProvider(nil)
+	p := NewClaudeProvider(nil, 0, 0)
 
 	_, err := p.Invoke(context.Background(), InvokeRequest{
 		UserMessage: "hello",
@@ -144,12 +145,12 @@ func TestClaudeProvider_Invoke_IsError(t *testing.T) {
 }
 
 // TestClaudeProvider_RunOnce_SessionExpiredViaEvent verifies that a "No conversation found"
-// event causes runOnce to return expired=true so Invoke can retry with a new session.
+// event causes runOnce to return retrySessionExpired so Invoke can retry with a new session.
 func TestClaudeProvider_RunOnce_SessionExpiredViaEvent(t *testing.T) {
 	fakeInPath(t, "claude", "claude_session_expired")
 	p := &ClaudeProvider{}
 
-	result, expired, err := p.runOnce(context.Background(), InvokeRequest{
+	result, reason, err := p.runOnce(context.Background(), InvokeRequest{
 		UserMessage: "hello",
 		SessionID:   "old-session-123",
 		WorkDir:     t.TempDir(),
@@ -157,8 +158,8 @@ func TestClaudeProvider_RunOnce_SessionExpiredViaEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runOnce() unexpected error = %v", err)
 	}
-	if !expired {
-		t.Error("runOnce() expired = false, want true")
+	if reason != retrySessionExpired {
+		t.Errorf("runOnce() reason = %v, want retrySessionExpired", reason)
 	}
 	if result.Text != "" || result.SessionID != "" {
 		t.Errorf("runOnce() result = %+v, want empty on session expiry", result)
@@ -171,7 +172,7 @@ func TestClaudeProvider_RunOnce_SessionExpiredViaExitFailure(t *testing.T) {
 	fakeInPath(t, "claude", "claude_exit_failure")
 	p := &ClaudeProvider{}
 
-	_, expired, err := p.runOnce(context.Background(), InvokeRequest{
+	_, reason, err := p.runOnce(context.Background(), InvokeRequest{
 		UserMessage: "hello",
 		SessionID:   "sess-with-id",
 		WorkDir:     t.TempDir(),
@@ -179,8 +180,8 @@ func TestClaudeProvider_RunOnce_SessionExpiredViaExitFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runOnce() unexpected error = %v", err)
 	}
-	if !expired {
-		t.Error("runOnce() expired = false, want true (exit failure with session is treated as expired)")
+	if reason != retrySessionExpired {
+		t.Errorf("runOnce() reason = %v, want retrySessionExpired (exit failure with session is treated as expired)", reason)
 	}
 }
 
@@ -190,14 +191,53 @@ func TestClaudeProvider_RunOnce_ExitFailureNoSession(t *testing.T) {
 	fakeInPath(t, "claude", "claude_exit_failure")
 	p := &ClaudeProvider{}
 
-	_, expired, err := p.runOnce(context.Background(), InvokeRequest{
+	_, reason, err := p.runOnce(context.Background(), InvokeRequest{
 		UserMessage: "hello",
 		WorkDir:     t.TempDir(),
 	})
 	if err == nil {
 		t.Fatal("runOnce() expected error for exit failure without session, got nil")
 	}
-	if expired {
-		t.Error("runOnce() expired = true, want false (exit failure without session is a real error)")
+	if reason != retryNone {
+		t.Errorf("runOnce() reason = %v, want retryNone (exit failure without session is a real error)", reason)
+	}
+}
+
+// TestClaudeProvider_IdleTimeout_TriggersRetry verifies that when the subprocess emits no output
+// within the idle deadline, Invoke returns an error wrapping errIdleTimeout.
+func TestClaudeProvider_IdleTimeout_TriggersRetry(t *testing.T) {
+	fakeInPath(t, "claude", "claude_idle_hang")
+	p := NewClaudeProvider(nil, 200*time.Millisecond, 1)
+
+	_, err := p.Invoke(context.Background(), InvokeRequest{
+		UserMessage: "hello",
+		WorkDir:     t.TempDir(),
+	})
+	if err == nil {
+		t.Fatal("Invoke() expected error on idle timeout, got nil")
+	}
+	if !errors.Is(err, errIdleTimeout) {
+		t.Errorf("err = %v, want to wrap errIdleTimeout", err)
+	}
+}
+
+// TestClaudeProvider_IdleTimeout_RetrySucceeds verifies that after an idle timeout the provider
+// retries with the captured session ID and returns the successful result.
+func TestClaudeProvider_IdleTimeout_RetrySucceeds(t *testing.T) {
+	fakeInPath(t, "claude", "claude_idle_then_succeed")
+	p := NewClaudeProvider(nil, 500*time.Millisecond, 3)
+
+	result, err := p.Invoke(context.Background(), InvokeRequest{
+		UserMessage: "hello",
+		WorkDir:     t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("Invoke() error = %v", err)
+	}
+	if result.Text != "recovered after idle" {
+		t.Errorf("Text = %q, want %q", result.Text, "recovered after idle")
+	}
+	if result.SessionID != "sess-recovered" {
+		t.Errorf("SessionID = %q, want %q", result.SessionID, "sess-recovered")
 	}
 }

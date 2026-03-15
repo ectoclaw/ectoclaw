@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os"
@@ -14,12 +13,14 @@ import (
 
 // ClaudeProvider invokes the `claude` CLI subprocess.
 type ClaudeProvider struct {
-	log *InvokeLogger
+	log         *InvokeLogger
+	idleTimeout time.Duration
+	maxRetries  int
 }
 
 // NewClaudeProvider returns a Provider backed by the claude CLI.
-func NewClaudeProvider(log *InvokeLogger) Provider {
-	return &ClaudeProvider{log: log}
+func NewClaudeProvider(log *InvokeLogger, idleTimeout time.Duration, maxRetries int) Provider {
+	return &ClaudeProvider{log: log, idleTimeout: idleTimeout, maxRetries: maxRetries}
 }
 
 // Name returns the provider identifier.
@@ -46,23 +47,18 @@ type claudeResultUsage struct {
 }
 
 // Invoke runs the claude CLI as a subprocess and returns the result.
-// If the session has expired it silently retries with a new session.
+// Retry logic (session expiry and idle timeout) is handled by invokeWithRetry.
 func (p *ClaudeProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeResult, error) {
-	result, sessionExpired, err := p.runOnce(ctx, req)
-	if sessionExpired {
-		logger.WarnCF("bridge", "Claude session expired, retrying with new session", map[string]any{
-			"old_session_id": req.SessionID,
-		})
-		req.SessionID = ""
-		result, _, err = p.runOnce(ctx, req)
-	}
-	return result, err
+	return invokeWithRetry(ctx, p, req, p.maxRetries, "claude")
 }
 
-// runOnce performs a single subprocess invocation. The second return value is true
-// when the failure is specifically a missing/expired session so Invoke can retry.
-func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (InvokeResult, bool, error) {
-	cmd := exec.CommandContext(ctx, "claude", p.buildArgs(req)...)
+// runOnce performs a single subprocess invocation. The retryReason return value signals
+// whether the caller should retry and why; retryNone means the result is final.
+func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (InvokeResult, retryReason, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, "claude", p.buildArgs(req)...)
 	cmd.Dir = req.WorkDir
 
 	var stderrBuf strings.Builder
@@ -70,25 +66,19 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return InvokeResult{}, false, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	p.log.LogInvoke(req.LogKey, "claude", req.SessionID, req.Model, req.UserMessage)
 
 	if err := cmd.Start(); err != nil {
-		return InvokeResult{}, false, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	start := time.Now()
 	var result claudeResultEvent
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
+	for line := range scanWithIdleTimeout(cancel, stdout, p.idleTimeout) {
 		p.log.LogLine(req.LogKey, line)
-		// Capture the result event for session/token data.
 		var ev claudeTypeEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
@@ -98,13 +88,20 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 		}
 	}
 
+	// If our cancel fired but the parent context is still alive, the idle timer triggered.
+	// cmd.Wait() is called to reap the process; the error is expected (signal: killed).
+	if runCtx.Err() != nil && ctx.Err() == nil {
+		_ = cmd.Wait() // process was killed; discard the "signal: killed" error
+		return InvokeResult{SessionID: result.SessionID}, retryIdleTimeout, errIdleTimeout
+	}
+
 	// Check for session-not-found before inspecting the exit code — the parsed
 	// event gives a more precise signal than a generic non-zero exit.
 	if result.Subtype == "error_during_execution" {
 		for _, errMsg := range result.Errors {
 			if strings.Contains(errMsg, "No conversation found") {
 				_ = cmd.Wait()
-				return InvokeResult{}, true, nil
+				return InvokeResult{}, retrySessionExpired, nil
 			}
 		}
 	}
@@ -118,9 +115,9 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 		})
 		// Unknown exit failure with a session — treat as expired so the caller retries.
 		if req.SessionID != "" {
-			return InvokeResult{}, true, nil
+			return InvokeResult{}, retrySessionExpired, nil
 		}
-		return InvokeResult{}, false, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	if s := stderrBuf.String(); s != "" {
@@ -133,7 +130,7 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 	// is_error:true with a non-empty result means claude returned a human-readable
 	// error message (e.g. rate limit, out of credits). Surface it to the user directly.
 	if result.IsError && result.Result != "" {
-		return InvokeResult{}, false, &ErrProviderMessage{Message: result.Result}
+		return InvokeResult{}, retryNone, &ErrProviderMessage{Message: result.Result}
 	}
 
 	duration := time.Since(start)
@@ -144,7 +141,7 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 		Text:      result.Result,
 		TokensIn:  result.Usage.InputTokens,
 		TokensOut: result.Usage.OutputTokens,
-	}, false, nil
+	}, retryNone, nil
 }
 
 func (p *ClaudeProvider) buildArgs(req InvokeRequest) []string {

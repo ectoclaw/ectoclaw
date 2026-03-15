@@ -1,7 +1,6 @@
 package providers
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"os/exec"
@@ -13,12 +12,14 @@ import (
 
 // CodexProvider invokes the OpenAI `codex` CLI subprocess via `codex exec`.
 type CodexProvider struct {
-	log *InvokeLogger
+	log         *InvokeLogger
+	idleTimeout time.Duration
+	maxRetries  int
 }
 
 // NewCodexProvider returns a Provider backed by the codex CLI.
-func NewCodexProvider(log *InvokeLogger) Provider {
-	return &CodexProvider{log: log}
+func NewCodexProvider(log *InvokeLogger, idleTimeout time.Duration, maxRetries int) Provider {
+	return &CodexProvider{log: log, idleTimeout: idleTimeout, maxRetries: maxRetries}
 }
 
 // Name returns the provider identifier.
@@ -26,10 +27,10 @@ func (p *CodexProvider) Name() string { return "codex" }
 
 // codex exec --json emits these JSONL event types.
 type codexEvent struct {
-	Type     string         `json:"type"`
-	ThreadID string         `json:"thread_id"` // thread.started
-	Item     *codexItem     `json:"item"`      // item.completed
-	Usage    *codexUsage    `json:"usage"`     // turn.completed
+	Type     string      `json:"type"`
+	ThreadID string      `json:"thread_id"` // thread.started
+	Item     *codexItem  `json:"item"`      // item.completed
+	Usage    *codexUsage `json:"usage"`     // turn.completed
 }
 
 type codexItem struct {
@@ -43,10 +44,18 @@ type codexUsage struct {
 }
 
 // Invoke runs `codex exec` (or `codex exec resume`) as a subprocess and returns the result.
+// Retry logic (idle timeout) is handled by invokeWithRetry.
 func (p *CodexProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeResult, error) {
-	args := p.buildArgs(req)
+	return invokeWithRetry(ctx, p, req, p.maxRetries, "codex")
+}
 
-	cmd := exec.CommandContext(ctx, "codex", args...)
+// runOnce performs a single subprocess invocation. The retryReason return value signals
+// whether the caller should retry and why; retryNone means the result is final.
+func (p *CodexProvider) runOnce(ctx context.Context, req InvokeRequest) (InvokeResult, retryReason, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, "codex", p.buildArgs(req)...)
 	cmd.Dir = req.WorkDir
 
 	var stderrBuf strings.Builder
@@ -54,25 +63,20 @@ func (p *CodexProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeRe
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return InvokeResult{}, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	p.log.LogInvoke(req.LogKey, "codex", req.SessionID, req.Model, req.UserMessage)
 
 	if err := cmd.Start(); err != nil {
-		return InvokeResult{}, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	start := time.Now()
 	var sessionID string
 	var lastAgentMessage string
 	var usage codexUsage
-	scanner := bufio.NewScanner(stdout)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			continue
-		}
+	for line := range scanWithIdleTimeout(cancel, stdout, p.idleTimeout) {
 		var ev codexEvent
 		if err := json.Unmarshal([]byte(line), &ev); err != nil {
 			continue
@@ -94,6 +98,13 @@ func (p *CodexProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeRe
 		}
 	}
 
+	// If our cancel fired but the parent context is still alive, the idle timer triggered.
+	// cmd.Wait() is called to reap the process; the error is expected (signal: killed).
+	if runCtx.Err() != nil && ctx.Err() == nil {
+		_ = cmd.Wait() // process was killed; discard the "signal: killed" error
+		return InvokeResult{SessionID: sessionID}, retryIdleTimeout, errIdleTimeout
+	}
+
 	if err := cmd.Wait(); err != nil {
 		stderr := strings.TrimSpace(stderrBuf.String())
 		p.log.LogStderr(req.LogKey, stderr)
@@ -102,9 +113,9 @@ func (p *CodexProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeRe
 			"stderr": stderr,
 		})
 		if stderr != "" {
-			return InvokeResult{}, &ErrProviderMessage{Message: stderr}
+			return InvokeResult{}, retryNone, &ErrProviderMessage{Message: stderr}
 		}
-		return InvokeResult{}, err
+		return InvokeResult{}, retryNone, err
 	}
 
 	duration := time.Since(start)
@@ -115,7 +126,7 @@ func (p *CodexProvider) Invoke(ctx context.Context, req InvokeRequest) (InvokeRe
 		Text:      lastAgentMessage,
 		TokensIn:  usage.InputTokens,
 		TokensOut: usage.OutputTokens,
-	}, nil
+	}, retryNone, nil
 }
 
 func (p *CodexProvider) buildArgs(req InvokeRequest) []string {

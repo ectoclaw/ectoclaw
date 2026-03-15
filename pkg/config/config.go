@@ -50,6 +50,10 @@ type BridgeConfig struct {
 	Provider string `json:"provider,omitempty" env:"ECTOCLAW_BRIDGE_PROVIDER"`
 	// Model is passed as --model to the CLI. If empty, the CLI uses its own default.
 	Model string `json:"model,omitempty" env:"ECTOCLAW_BRIDGE_MODEL"`
+	// IdleTimeoutMinutes kills and retries the subprocess if no JSON output arrives for this many minutes. 0 = disabled.
+	IdleTimeoutMinutes int `json:"idle_timeout_minutes,omitempty" env:"ECTOCLAW_BRIDGE_IDLE_TIMEOUT_MINUTES"`
+	// MaxRetries is the maximum number of idle-timeout restart attempts before returning an error.
+	MaxRetries int `json:"max_retries,omitempty" env:"ECTOCLAW_BRIDGE_MAX_RETRIES"`
 }
 
 type Config struct {

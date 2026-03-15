@@ -7,9 +7,10 @@
 *The bridge that gives your coding agent a heartbeat*
 
 <p>
+  <img src="https://github.com/ectoclaw/ectoclaw/actions/workflows/build.yml/badge.svg" alt="CI">
+  <img src="https://img.shields.io/github/v/release/ectoclaw/ectoclaw" alt="Latest release">
   <img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
-  <img src="https://img.shields.io/badge/LOC-~14k-green" alt="Lines of Code">
 </p>
 
 </div>

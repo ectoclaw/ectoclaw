@@ -8,10 +8,10 @@ import "github.com/ectoclaw/ectoclaw/pkg/config"
 type Runtime struct {
 	Config             *config.Config
 	GetModelInfo       func() (name, provider string)
-	ListAgentIDs       func() []string
 	ListDefinitions    func() []Definition
 	GetEnabledChannels func() []string
 	SwitchModel        func(value string) (oldModel string, err error)
 	SwitchChannel      func(value string) error
 	ClearHistory       func() error
+	CancelSession      func() bool // cancels the in-flight provider invocation; returns true if one was cancelled
 }

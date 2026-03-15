@@ -6,57 +6,32 @@ import (
 	"testing"
 )
 
-func TestShowListHandlers_ChannelPolicy(t *testing.T) {
-	ex := NewExecutor(NewRegistry(BuiltinDefinitions()), nil)
+func TestShowChannels_AllChannelsReturned(t *testing.T) {
+	rt := &Runtime{
+		GetEnabledChannels: func() []string {
+			return []string{"telegram", "slack"}
+		},
+	}
+	ex := NewExecutor(NewRegistry(BuiltinDefinitions()), rt)
 
-	var telegramReply string
-	handled := ex.Execute(context.Background(), Request{
+	var reply string
+	res := ex.Execute(context.Background(), Request{
 		Channel: "telegram",
-		Text:    "/show channel",
+		Text:    "/show channels",
 		Reply: func(text string) error {
-			telegramReply = text
+			reply = text
 			return nil
 		},
 	})
-	if handled.Outcome != OutcomeHandled {
-		t.Fatalf("telegram /show outcome=%v, want=%v", handled.Outcome, OutcomeHandled)
+	if res.Outcome != OutcomeHandled {
+		t.Fatalf("/show channels outcome=%v, want=%v", res.Outcome, OutcomeHandled)
 	}
-	if telegramReply != "Current Channel: telegram" {
-		t.Fatalf("telegram /show reply=%q, want=%q", telegramReply, "Current Channel: telegram")
-	}
-
-	var whatsappReply string
-	handledWhatsApp := ex.Execute(context.Background(), Request{
-		Channel: "whatsapp",
-		Text:    "/show channel",
-		Reply: func(text string) error {
-			whatsappReply = text
-			return nil
-		},
-	})
-	if handledWhatsApp.Outcome != OutcomeHandled {
-		t.Fatalf("whatsapp /show outcome=%v, want=%v", handledWhatsApp.Outcome, OutcomeHandled)
-	}
-	if handledWhatsApp.Command != "show" {
-		t.Fatalf("whatsapp /show command=%q, want=%q", handledWhatsApp.Command, "show")
-	}
-	if whatsappReply != "Current Channel: whatsapp" {
-		t.Fatalf("whatsapp /show reply=%q, want=%q", whatsappReply, "Current Channel: whatsapp")
-	}
-
-	passthrough := ex.Execute(context.Background(), Request{
-		Channel: "whatsapp",
-		Text:    "/foo",
-	})
-	if passthrough.Outcome != OutcomePassthrough {
-		t.Fatalf("whatsapp /foo outcome=%v, want=%v", passthrough.Outcome, OutcomePassthrough)
-	}
-	if passthrough.Command != "foo" {
-		t.Fatalf("whatsapp /foo command=%q, want=%q", passthrough.Command, "foo")
+	if !strings.Contains(reply, "telegram") || !strings.Contains(reply, "slack") {
+		t.Fatalf("/show channels reply=%q, want both channels", reply)
 	}
 }
 
-func TestShowListHandlers_ListHandledOnAllChannels(t *testing.T) {
+func TestShowChannels_HandledOnAllChannels(t *testing.T) {
 	rt := &Runtime{
 		GetEnabledChannels: func() []string {
 			return []string{"telegram"}
@@ -67,19 +42,34 @@ func TestShowListHandlers_ListHandledOnAllChannels(t *testing.T) {
 	var reply string
 	res := ex.Execute(context.Background(), Request{
 		Channel: "whatsapp",
-		Text:    "/list channels",
+		Text:    "/show channels",
 		Reply: func(text string) error {
 			reply = text
 			return nil
 		},
 	})
 	if res.Outcome != OutcomeHandled {
-		t.Fatalf("whatsapp /list outcome=%v, want=%v", res.Outcome, OutcomeHandled)
+		t.Fatalf("whatsapp /show channels outcome=%v, want=%v", res.Outcome, OutcomeHandled)
 	}
-	if res.Command != "list" {
-		t.Fatalf("whatsapp /list command=%q, want=%q", res.Command, "list")
+	if res.Command != "show" {
+		t.Fatalf("command=%q, want=%q", res.Command, "show")
 	}
 	if !strings.Contains(reply, "telegram") {
-		t.Fatalf("whatsapp /list reply=%q, expected enabled channels content", reply)
+		t.Fatalf("reply=%q, want enabled channels content", reply)
+	}
+}
+
+func TestUnknownCommand_Passthrough(t *testing.T) {
+	ex := NewExecutor(NewRegistry(BuiltinDefinitions()), nil)
+
+	passthrough := ex.Execute(context.Background(), Request{
+		Channel: "whatsapp",
+		Text:    "/foo",
+	})
+	if passthrough.Outcome != OutcomePassthrough {
+		t.Fatalf("whatsapp /foo outcome=%v, want=%v", passthrough.Outcome, OutcomePassthrough)
+	}
+	if passthrough.Command != "foo" {
+		t.Fatalf("whatsapp /foo command=%q, want=%q", passthrough.Command, "foo")
 	}
 }

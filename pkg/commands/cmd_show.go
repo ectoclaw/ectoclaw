@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"strings"
 )
 
 func showCommand() Definition {
@@ -22,16 +23,18 @@ func showCommand() Definition {
 				},
 			},
 			{
-				Name:        "channel",
-				Description: "Current channel",
-				Handler: func(_ context.Context, req Request, _ *Runtime) error {
-					return req.Reply(fmt.Sprintf("Current Channel: %s", req.Channel))
+				Name:        "channels",
+				Description: "All enabled channels",
+				Handler: func(_ context.Context, req Request, rt *Runtime) error {
+					if rt == nil || rt.GetEnabledChannels == nil {
+						return req.Reply(unavailableMsg)
+					}
+					enabled := rt.GetEnabledChannels()
+					if len(enabled) == 0 {
+						return req.Reply("No channels enabled")
+					}
+					return req.Reply(fmt.Sprintf("Enabled Channels:\n- %s", strings.Join(enabled, "\n- ")))
 				},
-			},
-			{
-				Name:        "agents",
-				Description: "Registered agents",
-				Handler:     agentsHandler(),
 			},
 		},
 	}

@@ -8,10 +8,9 @@ func BuiltinDefinitions() []Definition {
 	return []Definition{
 		startCommand(),
 		helpCommand(),
+		stopCommand(),
 		showCommand(),
-		listCommand(),
 		switchCommand(),
-		checkCommand(),
 		clearCommand(),
 	}
 }

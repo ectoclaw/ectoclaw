@@ -13,6 +13,7 @@ import (
 
 	"github.com/ectoclaw/ectoclaw/pkg/bus"
 	"github.com/ectoclaw/ectoclaw/pkg/channels"
+	"github.com/ectoclaw/ectoclaw/pkg/commands"
 	"github.com/ectoclaw/ectoclaw/pkg/config"
 	"github.com/ectoclaw/ectoclaw/pkg/logger"
 	"github.com/ectoclaw/ectoclaw/pkg/media"
@@ -30,6 +31,8 @@ type Loop struct {
 	provider       providers.Provider
 	mediaStore     media.MediaStore
 	inFlight       sync.Map // SessionKey → struct{}{}: dedup in-flight requests
+	cancelFlights  sync.Map // SessionKey → context.CancelFunc: per-session cancel for /stop
+	reg            *commands.Registry
 }
 
 // NewLoop creates a new bridge Loop.
@@ -41,6 +44,7 @@ func NewLoop(
 	sessions *Sessions,
 	provider providers.Provider,
 ) *Loop {
+	reg := commands.NewRegistry(commands.BuiltinDefinitions())
 	return &Loop{
 		bus:            msgBus,
 		sessions:       sessions,
@@ -48,6 +52,7 @@ func NewLoop(
 		stateManager:   sm,
 		cfg:            cfg,
 		provider:       provider,
+		reg:            reg,
 	}
 }
 
@@ -69,14 +74,42 @@ func (l *Loop) Run(ctx context.Context) error {
 }
 
 func (l *Loop) handleMessage(ctx context.Context, msg bus.InboundMessage) {
+	// Build a reply func for immediate responses (commands, busy notices, etc.).
+	replyFn := func(text string) error {
+		return l.bus.PublishOutbound(ctx, bus.OutboundMessage{
+			Channel: msg.Channel,
+			ChatID:  msg.ChatID,
+			Content: text,
+		})
+	}
+
+	// Run command executor BEFORE the busy check so commands always get an immediate reply.
+	rt := l.buildRuntime(msg)
+	req := commands.Request{
+		Channel:  msg.Channel,
+		ChatID:   msg.ChatID,
+		SenderID: msg.SenderID,
+		Text:     msg.Content,
+		Reply:    replyFn,
+	}
+	if result := commands.NewExecutor(l.reg, rt).Execute(ctx, req); result.Outcome == commands.OutcomeHandled {
+		return
+	}
+
 	// Dedup in-flight requests per session.
 	if _, loaded := l.inFlight.LoadOrStore(msg.SessionKey, struct{}{}); loaded {
-		logger.WarnCF("bridge", "Dropping duplicate in-flight message", map[string]any{
-			"session_key": msg.SessionKey,
-		})
+		_ = replyFn("Still working on your last message. Use /stop to cancel.")
 		return
 	}
 	defer l.inFlight.Delete(msg.SessionKey)
+
+	// Create a cancellable context for this invocation so /stop can abort it.
+	invokeCtx, invokeCancel := context.WithCancel(ctx)
+	l.cancelFlights.Store(msg.SessionKey, invokeCancel)
+	defer func() {
+		invokeCancel()
+		l.cancelFlights.Delete(msg.SessionKey)
+	}()
 
 	// Start typing indicator if the channel supports it.
 	stop := func() {}
@@ -121,7 +154,7 @@ func (l *Loop) handleMessage(ctx context.Context, msg bus.InboundMessage) {
 		"work_dir":   l.cfg.WorkspacePath(),
 		"session_id": existingID,
 	})
-	result, err := l.provider.Invoke(ctx, providers.InvokeRequest{
+	result, err := l.provider.Invoke(invokeCtx, providers.InvokeRequest{
 		LogKey:       sanitizeSessionKey(msg.SessionKey),
 		SessionKey:   msg.SessionKey,
 		SessionID:    existingID,
@@ -141,6 +174,10 @@ func (l *Loop) handleMessage(ctx context.Context, msg bus.InboundMessage) {
 	if err != nil {
 		stop()
 		stop = func() {}
+		// Silently discard context cancellation — user already received "Stopped." from /stop.
+		if errors.Is(err, context.Canceled) {
+			return
+		}
 		var provMsg *providers.ErrProviderMessage
 		if errors.As(err, &provMsg) {
 			// Human-readable provider error — forward directly to the user, no internal logging needed.
@@ -230,7 +267,37 @@ func (l *Loop) handleMessage(ctx context.Context, msg bus.InboundMessage) {
 	}
 }
 
-// inferMediaType returns the bus MediaPart type string based on file extension.
+// buildRuntime constructs a per-message Runtime for command handlers.
+func (l *Loop) buildRuntime(msg bus.InboundMessage) *commands.Runtime {
+	return &commands.Runtime{
+		Config: l.cfg,
+		GetModelInfo: func() (string, string) {
+			return l.cfg.Bridge.Model, l.provider.Name()
+		},
+		ListDefinitions: func() []commands.Definition {
+			return l.reg.Definitions()
+		},
+		GetEnabledChannels: l.channelManager.GetEnabledChannels,
+		SwitchModel: func(value string) (string, error) {
+			old := l.cfg.Bridge.Model
+			l.cfg.Bridge.Model = value
+			return old, nil
+		},
+		ClearHistory: func() error {
+			l.sessions.Delete(msg.SessionKey)
+			return l.sessions.Save()
+		},
+		CancelSession: func() bool {
+			v, ok := l.cancelFlights.Load(msg.SessionKey)
+			if !ok {
+				return false
+			}
+			v.(context.CancelFunc)()
+			return true
+		},
+	}
+}
+
 // persistInboundFile copies a temp file into the daily history files directory.
 // Returns the destination path, or the original path on any error.
 func persistInboundFile(src, filename, destDir string) string {

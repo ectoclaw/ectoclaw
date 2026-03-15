@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -58,7 +59,24 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, "claude", p.buildArgs(req)...)
+	var sysPromptFile string
+	if req.SystemPrompt != "" {
+		f, err := os.CreateTemp("", "ectoclaw-sysprompt-*.md")
+		if err != nil {
+			return InvokeResult{}, retryNone, fmt.Errorf("create system prompt file: %w", err)
+		}
+		defer os.Remove(f.Name())
+		if _, err := f.WriteString(req.SystemPrompt); err != nil {
+			f.Close()
+			return InvokeResult{}, retryNone, fmt.Errorf("write system prompt file: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return InvokeResult{}, retryNone, fmt.Errorf("close system prompt file: %w", err)
+		}
+		sysPromptFile = f.Name()
+	}
+
+	cmd := exec.CommandContext(runCtx, "claude", p.buildArgs(req, sysPromptFile)...)
 	cmd.Dir = req.WorkDir
 
 	var stderrBuf strings.Builder
@@ -144,7 +162,7 @@ func (p *ClaudeProvider) runOnce(ctx context.Context, req InvokeRequest) (Invoke
 	}, retryNone, nil
 }
 
-func (p *ClaudeProvider) buildArgs(req InvokeRequest) []string {
+func (p *ClaudeProvider) buildArgs(req InvokeRequest, sysPromptFile string) []string {
 	args := []string{
 		"-p", req.UserMessage,
 		"--output-format", "stream-json",
@@ -154,8 +172,11 @@ func (p *ClaudeProvider) buildArgs(req InvokeRequest) []string {
 	if req.SessionID != "" {
 		args = append([]string{"--resume", req.SessionID}, args...)
 	}
-	if req.SystemPrompt != "" {
-		args = append(args, "--system-prompt", req.SystemPrompt)
+	if req.Stateless {
+		args = append(args, "--no-session-persistence")
+	}
+	if sysPromptFile != "" {
+		args = append(args, "--system-prompt-file", sysPromptFile)
 	}
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)

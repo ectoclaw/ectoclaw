@@ -3,6 +3,8 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -55,7 +57,24 @@ func (p *CodexProvider) runOnce(ctx context.Context, req InvokeRequest) (InvokeR
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, "codex", p.buildArgs(req)...)
+	var sysPromptFile string
+	if req.SystemPrompt != "" {
+		f, err := os.CreateTemp("", "ectoclaw-sysprompt-*.md")
+		if err != nil {
+			return InvokeResult{}, retryNone, fmt.Errorf("create system prompt file: %w", err)
+		}
+		defer os.Remove(f.Name())
+		if _, err := f.WriteString(req.SystemPrompt); err != nil {
+			f.Close()
+			return InvokeResult{}, retryNone, fmt.Errorf("write system prompt file: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return InvokeResult{}, retryNone, fmt.Errorf("close system prompt file: %w", err)
+		}
+		sysPromptFile = f.Name()
+	}
+
+	cmd := exec.CommandContext(runCtx, "codex", p.buildArgs(req, sysPromptFile)...)
 	cmd.Dir = req.WorkDir
 
 	var stderrBuf strings.Builder
@@ -129,24 +148,14 @@ func (p *CodexProvider) runOnce(ctx context.Context, req InvokeRequest) (InvokeR
 	}, retryNone, nil
 }
 
-func (p *CodexProvider) buildArgs(req InvokeRequest) []string {
-	// Codex has no --system-prompt flag, so we embed it in the message using explicit delimiters.
-	// The framing instructs the model to treat it as background context, not user input,
-	// and never to repeat or summarise it unless directly asked.
-	message := req.UserMessage
-	if req.SystemPrompt != "" {
-		message = "<system>\n" +
-			"The following is your background context and instructions. " +
-			"Treat it as your own internal knowledge — never quote, summarise, or mention it unless the user explicitly asks.\n\n" +
-			req.SystemPrompt +
-			"\n</system>\n\n" +
-			req.UserMessage
-	}
-
+func (p *CodexProvider) buildArgs(req InvokeRequest, sysPromptFile string) []string {
 	baseFlags := []string{
 		"--json",
 		"--dangerously-bypass-approvals-and-sandbox",
 		"--skip-git-repo-check",
+	}
+	if sysPromptFile != "" {
+		baseFlags = append(baseFlags, "-c", "model_instructions_file="+sysPromptFile)
 	}
 	if req.Stateless {
 		baseFlags = append(baseFlags, "--ephemeral")
@@ -158,11 +167,11 @@ func (p *CodexProvider) buildArgs(req InvokeRequest) []string {
 
 	if req.SessionID != "" {
 		// codex exec resume <session_id> <prompt> [flags]
-		args := []string{"exec", "resume", req.SessionID, message}
+		args := []string{"exec", "resume", req.SessionID, req.UserMessage}
 		return append(args, baseFlags...)
 	}
 
 	// codex exec [flags] <prompt>
 	args := append([]string{"exec"}, baseFlags...)
-	return append(args, message)
+	return append(args, req.UserMessage)
 }

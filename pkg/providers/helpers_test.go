@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -78,6 +79,45 @@ func TestHelperProcess(t *testing.T) {
 		// Emit a thread.started event so the session_id is captured before hanging.
 		fmt.Println(`{"type":"thread.started","thread_id":"thread-partial"}`)
 		time.Sleep(time.Hour)
+	case "claude_check_instructions_file":
+		// Find --system-prompt-file in args, verify the file exists, echo its path as the result.
+		for i, arg := range os.Args {
+			if arg == "--system-prompt-file" && i+1 < len(os.Args) {
+				path := os.Args[i+1]
+				if _, err := os.Stat(path); err != nil {
+					fmt.Fprintf(os.Stderr, "system prompt file missing: %v\n", err)
+					os.Exit(1)
+				}
+				fmt.Printf(
+					`{"type":"result","subtype":"success","is_error":false,"result":%q,"session_id":"sess-abc","usage":{"input_tokens":10,"output_tokens":5}}`,
+					path,
+				)
+				fmt.Println()
+				os.Exit(0)
+			}
+		}
+		fmt.Fprintln(os.Stderr, "claude_check_instructions_file: --system-prompt-file not found in args")
+		os.Exit(2)
+	case "codex_check_instructions_file":
+		// Find -c model_instructions_file=... in args, verify the file exists, echo its path as the result.
+		for i, arg := range os.Args {
+			if arg == "-c" && i+1 < len(os.Args) {
+				val := os.Args[i+1]
+				if path, ok := strings.CutPrefix(val, "model_instructions_file="); ok && path != "" {
+					if _, err := os.Stat(path); err != nil {
+						fmt.Fprintf(os.Stderr, "system prompt file missing: %v\n", err)
+						os.Exit(1)
+					}
+					fmt.Println(`{"type":"thread.started","thread_id":"thread-xyz"}`)
+					fmt.Printf(`{"type":"item.completed","item":{"type":"agent_message","text":%q}}`, path)
+					fmt.Println()
+					fmt.Println(`{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}`)
+					os.Exit(0)
+				}
+			}
+		}
+		fmt.Fprintln(os.Stderr, "codex_check_instructions_file: -c model_instructions_file not found in args")
+		os.Exit(2)
 	default:
 		fmt.Fprintf(os.Stderr, "unknown FAKE_SCENARIO=%q\n", os.Getenv("FAKE_SCENARIO"))
 		os.Exit(2)

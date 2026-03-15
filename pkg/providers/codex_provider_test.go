@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestCodexProvider_BuildArgs(t *testing.T) {
 	p := &CodexProvider{}
 
 	t.Run("new session uses exec form", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello"})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "")
 		if args[0] != "exec" {
 			t.Errorf("args[0] = %q, want %q", args[0], "exec")
 		}
@@ -33,7 +34,7 @@ func TestCodexProvider_BuildArgs(t *testing.T) {
 	})
 
 	t.Run("resume session uses exec resume form", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello", SessionID: "thread-123"})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello", SessionID: "thread-123"}, "")
 		if len(args) < 4 {
 			t.Fatalf("too few args: %v", args)
 		}
@@ -43,44 +44,55 @@ func TestCodexProvider_BuildArgs(t *testing.T) {
 	})
 
 	t.Run("stateless adds --ephemeral", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello", Stateless: true})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello", Stateless: true}, "")
 		if !sliceContains(args, "--ephemeral") {
 			t.Errorf("stateless args %v should contain --ephemeral", args)
 		}
 	})
 
 	t.Run("non-stateless omits --ephemeral", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello"})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "")
 		if sliceContains(args, "--ephemeral") {
 			t.Errorf("non-stateless args %v should not contain --ephemeral", args)
 		}
 	})
 
 	t.Run("model flag", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello", Model: "gpt-4o"})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello", Model: "gpt-4o"}, "")
 		idx := sliceIndexOf(args, "--model")
 		if idx == -1 || idx+1 >= len(args) || args[idx+1] != "gpt-4o" {
 			t.Errorf("args %v should contain --model gpt-4o", args)
 		}
 	})
 
-	t.Run("system prompt embedded in message", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "user question", SystemPrompt: "be helpful"})
-		// For a new session the message is always the last argument.
+	t.Run("no sysPromptFile omits -c flag", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "user question", SystemPrompt: "be helpful"}, "")
+		if sliceContains(args, "-c") {
+			t.Errorf("args %v should not contain -c when no sysPromptFile", args)
+		}
+		// Message should be unchanged (no <system> wrapping).
 		msg := args[len(args)-1]
-		if !strings.Contains(msg, "<system>") {
-			t.Errorf("message should contain <system> tag: %q", msg)
+		if strings.Contains(msg, "<system>") {
+			t.Errorf("message should not contain <system>: %q", msg)
 		}
-		if !strings.Contains(msg, "be helpful") {
-			t.Errorf("message should contain system prompt content: %q", msg)
+		if msg != "user question" {
+			t.Errorf("message = %q, want %q", msg, "user question")
 		}
-		if !strings.Contains(msg, "user question") {
-			t.Errorf("message should contain original user message: %q", msg)
+	})
+
+	t.Run("sysPromptFile adds -c flag", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "/tmp/x.md")
+		idx := sliceIndexOf(args, "-c")
+		if idx == -1 || idx+1 >= len(args) {
+			t.Fatalf("args %v should contain -c <value>", args)
+		}
+		if args[idx+1] != "model_instructions_file=/tmp/x.md" {
+			t.Errorf("args[%d] = %q, want %q", idx+1, args[idx+1], "model_instructions_file=/tmp/x.md")
 		}
 	})
 
 	t.Run("no system prompt leaves message unchanged", func(t *testing.T) {
-		args := p.buildArgs(InvokeRequest{UserMessage: "hello"})
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "")
 		msg := args[len(args)-1]
 		if strings.Contains(msg, "<system>") {
 			t.Errorf("message without system prompt should not contain <system>: %q", msg)
@@ -170,6 +182,30 @@ func TestCodexProvider_IdleTimeout_TriggersRetry(t *testing.T) {
 	}
 	if !errors.Is(err, errIdleTimeout) {
 		t.Errorf("err = %v, want to wrap errIdleTimeout", err)
+	}
+}
+
+// TestCodexProvider_SystemPromptFile verifies that runOnce writes the system prompt to a temp
+// file, passes it via -c model_instructions_file, and removes the file after returning.
+func TestCodexProvider_SystemPromptFile(t *testing.T) {
+	fakeInPath(t, "codex", "codex_check_instructions_file")
+	p := &CodexProvider{}
+
+	result, _, err := p.runOnce(context.Background(), InvokeRequest{
+		UserMessage:  "hello",
+		SystemPrompt: "be helpful",
+		WorkDir:      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("runOnce() error = %v", err)
+	}
+	// The fake scenario echoes the file path as the agent_message text.
+	tmpPath := result.Text
+	if tmpPath == "" {
+		t.Fatal("expected result.Text to contain the temp file path")
+	}
+	if _, statErr := os.Stat(tmpPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("temp file %q should have been removed after runOnce returned", tmpPath)
 	}
 }
 

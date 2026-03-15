@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 )
@@ -43,17 +44,6 @@ func TestClaudeProvider_BuildArgs(t *testing.T) {
 			},
 		},
 		{
-			name: "with system prompt",
-			req:  InvokeRequest{UserMessage: "hello", SystemPrompt: "be helpful"},
-			wantArgs: []string{
-				"-p", "hello",
-				"--output-format", "stream-json",
-				"--verbose",
-				"--dangerously-skip-permissions",
-				"--system-prompt", "be helpful",
-			},
-		},
-		{
 			name: "with model",
 			req:  InvokeRequest{UserMessage: "hello", Model: "claude-opus-4-5"},
 			wantArgs: []string{
@@ -67,10 +57,9 @@ func TestClaudeProvider_BuildArgs(t *testing.T) {
 		{
 			name: "all fields set",
 			req: InvokeRequest{
-				UserMessage:  "hello",
-				SessionID:    "sess-123",
-				SystemPrompt: "be helpful",
-				Model:        "claude-opus-4-5",
+				UserMessage: "hello",
+				SessionID:   "sess-123",
+				Model:       "claude-opus-4-5",
 			},
 			wantArgs: []string{
 				"--resume", "sess-123",
@@ -78,7 +67,6 @@ func TestClaudeProvider_BuildArgs(t *testing.T) {
 				"--output-format", "stream-json",
 				"--verbose",
 				"--dangerously-skip-permissions",
-				"--system-prompt", "be helpful",
 				"--model", "claude-opus-4-5",
 			},
 		},
@@ -86,7 +74,7 @@ func TestClaudeProvider_BuildArgs(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := p.buildArgs(tc.req)
+			got := p.buildArgs(tc.req, "")
 			if len(got) != len(tc.wantArgs) {
 				t.Fatalf("buildArgs() = %v (len %d), want %v (len %d)", got, len(got), tc.wantArgs, len(tc.wantArgs))
 			}
@@ -218,6 +206,72 @@ func TestClaudeProvider_IdleTimeout_TriggersRetry(t *testing.T) {
 	}
 	if !errors.Is(err, errIdleTimeout) {
 		t.Errorf("err = %v, want to wrap errIdleTimeout", err)
+	}
+}
+
+// TestClaudeProvider_BuildArgs_Stateless verifies the --no-session-persistence flag behaviour.
+func TestClaudeProvider_BuildArgs_Stateless(t *testing.T) {
+	p := &ClaudeProvider{}
+
+	t.Run("stateless adds --no-session-persistence", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello", Stateless: true}, "")
+		if !sliceContains(args, "--no-session-persistence") {
+			t.Errorf("stateless args %v should contain --no-session-persistence", args)
+		}
+	})
+
+	t.Run("non-stateless omits --no-session-persistence", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "")
+		if sliceContains(args, "--no-session-persistence") {
+			t.Errorf("non-stateless args %v should not contain --no-session-persistence", args)
+		}
+	})
+}
+
+// TestClaudeProvider_BuildArgs_SysPromptFile verifies the --system-prompt-file flag behaviour.
+func TestClaudeProvider_BuildArgs_SysPromptFile(t *testing.T) {
+	p := &ClaudeProvider{}
+
+	t.Run("no sysPromptFile omits flag", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "")
+		if sliceContains(args, "--system-prompt-file") {
+			t.Errorf("args %v should not contain --system-prompt-file", args)
+		}
+		if sliceContains(args, "--system-prompt") {
+			t.Errorf("args %v should not contain --system-prompt", args)
+		}
+	})
+
+	t.Run("sysPromptFile adds flag", func(t *testing.T) {
+		args := p.buildArgs(InvokeRequest{UserMessage: "hello"}, "/tmp/x.md")
+		idx := sliceIndexOf(args, "--system-prompt-file")
+		if idx == -1 || idx+1 >= len(args) || args[idx+1] != "/tmp/x.md" {
+			t.Errorf("args %v should contain --system-prompt-file /tmp/x.md", args)
+		}
+	})
+}
+
+// TestClaudeProvider_SystemPromptFile verifies that runOnce writes the system prompt to a temp
+// file, passes it via --system-prompt-file, and removes the file after returning.
+func TestClaudeProvider_SystemPromptFile(t *testing.T) {
+	fakeInPath(t, "claude", "claude_check_instructions_file")
+	p := &ClaudeProvider{}
+
+	result, _, err := p.runOnce(context.Background(), InvokeRequest{
+		UserMessage:  "hello",
+		SystemPrompt: "be helpful",
+		WorkDir:      t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("runOnce() error = %v", err)
+	}
+	// The fake scenario echoes the file path as the result text.
+	tmpPath := result.Text
+	if tmpPath == "" {
+		t.Fatal("expected result.Text to contain the temp file path")
+	}
+	if _, statErr := os.Stat(tmpPath); !errors.Is(statErr, os.ErrNotExist) {
+		t.Errorf("temp file %q should have been removed after runOnce returned", tmpPath)
 	}
 }
 

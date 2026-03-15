@@ -40,6 +40,7 @@ func TestNewEctoclawCommand(t *testing.T) {
 		"service",
 		"skills",
 		"status",
+		"upgrade",
 		"version",
 	}
 

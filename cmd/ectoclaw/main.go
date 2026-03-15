@@ -14,6 +14,7 @@ import (
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/service"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/skills"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/status"
+	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/upgrade"
 	"github.com/ectoclaw/ectoclaw/cmd/ectoclaw/internal/version"
 )
 
@@ -34,6 +35,7 @@ func NewEctoclawCommand() *cobra.Command {
 		status.NewStatusCommand(),
 		cron.NewCronCommand(),
 		skills.NewSkillsCommand(),
+		upgrade.NewUpgradeCommand(),
 		version.NewVersionCommand(),
 	)
 

@@ -6,10 +6,18 @@ import (
 	"errors"
 	"io"
 	"time"
+
+	"github.com/ectoclaw/ectoclaw/pkg/logger"
 )
 
 // errIdleTimeout is returned when no output arrives within the idle deadline.
 var errIdleTimeout = errors.New("provider: no output received within idle timeout")
+
+// scannerMaxTokenSize is the maximum size of a single JSON line read from the provider subprocess.
+// The default bufio.Scanner limit is 64 KB, which is too small for tool output events that embed
+// file contents. A 4 MB limit prevents ErrTooLong from causing a deadlock (the subprocess blocks
+// writing to its stdout pipe while cmd.Wait() blocks waiting for the subprocess to exit).
+const scannerMaxTokenSize = 4 * 1024 * 1024 // 4 MB
 
 // scanWithIdleTimeout reads lines from r, sending each non-empty line to the returned channel.
 // If idleTimeout > 0 and no line arrives within that duration, cancel is called (which kills
@@ -26,6 +34,7 @@ func scanWithIdleTimeout(cancel context.CancelFunc, r io.Reader, idleTimeout tim
 	go func() {
 		defer close(lineCh)
 		scanner := bufio.NewScanner(r)
+		scanner.Buffer(make([]byte, scannerMaxTokenSize), scannerMaxTokenSize)
 
 		// Fast path: no idle timeout configured — drain directly without timer overhead.
 		if idleTimeout <= 0 {
@@ -33,6 +42,9 @@ func scanWithIdleTimeout(cancel context.CancelFunc, r io.Reader, idleTimeout tim
 				if line := scanner.Text(); line != "" {
 					lineCh <- line
 				}
+			}
+			if err := scanner.Err(); err != nil {
+				logger.WarnCF("providers", "stdout scanner error", map[string]any{"error": err.Error()})
 			}
 			return
 		}
@@ -43,6 +55,9 @@ func scanWithIdleTimeout(cancel context.CancelFunc, r io.Reader, idleTimeout tim
 			defer close(rawCh)
 			for scanner.Scan() {
 				rawCh <- scanner.Text()
+			}
+			if err := scanner.Err(); err != nil {
+				logger.WarnCF("providers", "stdout scanner error", map[string]any{"error": err.Error()})
 			}
 		}()
 
